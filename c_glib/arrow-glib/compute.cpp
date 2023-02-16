@@ -1985,22 +1985,16 @@ garrow_execute_plan_validate(GArrowExecutePlan *plan,
 /**
  * garrow_execute_plan_start:
  * @plan: A #GArrowExecutePlan.
- * @error: (nullable): Return location for a #GError or %NULL.
  *
  * Starts this plan.
  *
- * Returns: %TRUE on success, %FALSE on error.
- *
  * Since: 6.0.0
  */
-gboolean
-garrow_execute_plan_start(GArrowExecutePlan *plan,
-                          GError **error)
+void
+garrow_execute_plan_start(GArrowExecutePlan *plan)
 {
   auto arrow_plan = garrow_execute_plan_get_raw(plan);
-  return garrow::check(error,
-                       arrow_plan->StartProducing(),
-                       "[execute-plan][start]");
+  arrow_plan->StartProducing();
 }
 
 /**
@@ -5195,7 +5189,7 @@ G_END_DECLS
 arrow::Result<arrow::FieldRef>
 garrow_field_reference_resolve_raw(const gchar *reference)
 {
-  if (reference && reference[0] == '.') {
+  if (reference && (reference[0] == '.' || reference[0] == '[')) {
     return arrow::FieldRef::FromDotPath(reference);
   } else {
     arrow::FieldRef arrow_reference(reference);

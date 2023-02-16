@@ -721,7 +721,7 @@ cdef class _PandasConvertible(_Weakrefable):
             If False, all timestamps are converted to datetime64[ns] dtype.
         use_threads : bool, default True
             Whether to parallelize the conversion using multiple threads.
-        deduplicate_objects : bool, default False
+        deduplicate_objects : bool, default True
             Do not create multiple copies Python objects when created, to save
             on memory use. Conversion will be slower.
         ignore_metadata : bool, default False
@@ -2785,7 +2785,10 @@ cdef class StructArray(Array):
         if (c_arrays.size() == 0 and c_names.size() == 0 and
                 c_fields.size() == 0):
             # The C++ side doesn't allow this
-            return array([], struct([]))
+            if mask is None:
+                return array([], struct([]))
+            else:
+                return array([{}] * len(mask), struct([]), mask=mask)
 
         if names is not None:
             # XXX Cannot pass "nullptr" for a shared_ptr<T> argument:

@@ -21,18 +21,19 @@ package flightsql_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/apache/arrow/go/v11/arrow"
-	"github.com/apache/arrow/go/v11/arrow/array"
-	"github.com/apache/arrow/go/v11/arrow/flight"
-	"github.com/apache/arrow/go/v11/arrow/flight/flightsql"
-	"github.com/apache/arrow/go/v11/arrow/flight/flightsql/example"
-	"github.com/apache/arrow/go/v11/arrow/flight/flightsql/schema_ref"
-	"github.com/apache/arrow/go/v11/arrow/memory"
-	"github.com/apache/arrow/go/v11/arrow/scalar"
+	"github.com/apache/arrow/go/v12/arrow"
+	"github.com/apache/arrow/go/v12/arrow/array"
+	"github.com/apache/arrow/go/v12/arrow/flight"
+	"github.com/apache/arrow/go/v12/arrow/flight/flightsql"
+	"github.com/apache/arrow/go/v12/arrow/flight/flightsql/example"
+	"github.com/apache/arrow/go/v12/arrow/flight/flightsql/schema_ref"
+	"github.com/apache/arrow/go/v12/arrow/memory"
+	"github.com/apache/arrow/go/v12/arrow/scalar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/protobuf/proto"
@@ -42,6 +43,7 @@ import (
 type FlightSqliteServerSuite struct {
 	suite.Suite
 
+	db  *sql.DB
 	srv *example.SQLiteFlightSQLServer
 	s   flight.Server
 	cl  *flightsql.Client
@@ -71,7 +73,9 @@ func (s *FlightSqliteServerSuite) SetupTest() {
 	var err error
 	s.mem = memory.NewCheckedAllocator(memory.DefaultAllocator)
 	s.s = flight.NewServerWithMiddleware(nil)
-	s.srv, err = example.NewSQLiteFlightSQLServer()
+	s.db, err = example.CreateDB()
+	s.Require().NoError(err)
+	s.srv, err = example.NewSQLiteFlightSQLServer(s.db)
 	s.Require().NoError(err)
 	s.srv.Alloc = s.mem
 
@@ -89,6 +93,8 @@ func (s *FlightSqliteServerSuite) TearDownTest() {
 	s.Require().NoError(s.cl.Close())
 	s.s.Shutdown()
 	s.srv = nil
+	err := s.db.Close()
+	s.Require().NoError(err)
 	s.mem.AssertSize(s.T(), 0)
 }
 
@@ -156,9 +162,9 @@ func (s *FlightSqliteServerSuite) TestCommandGetTables() {
 	s.NoError(err)
 	defer rdr.Release()
 
-	catalogName := array.MakeArrayOfNull(s.mem, arrow.BinaryTypes.String, 3)
+	catalogName := s.fromJSON(arrow.BinaryTypes.String, `["main", "main", "main"]`)
 	defer catalogName.Release()
-	schemaName := array.MakeArrayOfNull(s.mem, arrow.BinaryTypes.String, 3)
+	schemaName := s.fromJSON(arrow.BinaryTypes.String, `["", "", ""]`)
 	defer schemaName.Release()
 
 	tableName := s.fromJSON(arrow.BinaryTypes.String, `["foreignTable", "intTable", "sqlite_sequence"]`)
@@ -180,6 +186,24 @@ func (s *FlightSqliteServerSuite) TestCommandGetTables() {
 	s.Truef(array.RecordEqual(expectedRec, rec), "expected: %s\ngot: %s", expectedRec, rec)
 }
 
+func (s *FlightSqliteServerSuite) TestCommandGetTablesWithIncludedSchemasNoFilter() {
+	ctx := context.Background()
+	info, err := s.cl.GetTables(ctx, &flightsql.GetTablesOpts{
+		IncludeSchema: true,
+	})
+	s.NoError(err)
+	s.NotNil(info)
+
+	rdr, err := s.cl.DoGet(ctx, info.Endpoint[0].Ticket)
+	s.NoError(err)
+	defer rdr.Release()
+
+	// Don't check the actual data since it'll include SQLite internal tables
+	s.True(rdr.Next())
+	s.False(rdr.Next())
+	s.NoError(rdr.Err())
+}
+
 func (s *FlightSqliteServerSuite) TestCommandGetTablesWithTableFilter() {
 	ctx := context.Background()
 	info, err := s.cl.GetTables(ctx, &flightsql.GetTablesOpts{
@@ -192,8 +216,8 @@ func (s *FlightSqliteServerSuite) TestCommandGetTablesWithTableFilter() {
 	s.NoError(err)
 	defer rdr.Release()
 
-	catalog := s.fromJSON(arrow.BinaryTypes.String, `[null]`)
-	schema := s.fromJSON(arrow.BinaryTypes.String, `[null]`)
+	catalog := s.fromJSON(arrow.BinaryTypes.String, `["main"]`)
+	schema := s.fromJSON(arrow.BinaryTypes.String, `[""]`)
 	table := s.fromJSON(arrow.BinaryTypes.String, `["intTable"]`)
 	tabletype := s.fromJSON(arrow.BinaryTypes.String, `["table"]`)
 	expected := array.NewRecord(schema_ref.Tables, []arrow.Array{catalog, schema, table, tabletype}, 1)
@@ -243,9 +267,9 @@ func (s *FlightSqliteServerSuite) TestCommandGetTablesWithExistingTableTypeFilte
 	s.NoError(err)
 	defer rdr.Release()
 
-	catalogName := array.MakeArrayOfNull(s.mem, arrow.BinaryTypes.String, 3)
+	catalogName := s.fromJSON(arrow.BinaryTypes.String, `["main", "main", "main"]`)
 	defer catalogName.Release()
-	schemaName := array.MakeArrayOfNull(s.mem, arrow.BinaryTypes.String, 3)
+	schemaName := s.fromJSON(arrow.BinaryTypes.String, `["", "", ""]`)
 	defer schemaName.Release()
 
 	tableName := s.fromJSON(arrow.BinaryTypes.String, `["foreignTable", "intTable", "sqlite_sequence"]`)
@@ -280,8 +304,8 @@ func (s *FlightSqliteServerSuite) TestCommandGetTablesWithIncludedSchemas() {
 	s.NoError(err)
 	defer rdr.Release()
 
-	catalog := s.fromJSON(arrow.BinaryTypes.String, `[null]`)
-	schema := s.fromJSON(arrow.BinaryTypes.String, `[null]`)
+	catalog := s.fromJSON(arrow.BinaryTypes.String, `["main"]`)
+	schema := s.fromJSON(arrow.BinaryTypes.String, `[""]`)
 	table := s.fromJSON(arrow.BinaryTypes.String, `["intTable"]`)
 	tabletype := s.fromJSON(arrow.BinaryTypes.String, `["table"]`)
 
@@ -367,6 +391,19 @@ func (s *FlightSqliteServerSuite) TestCommandGetCatalogs() {
 	defer rdr.Release()
 
 	s.True(rdr.Schema().Equal(schema_ref.Catalogs), rdr.Schema().String())
+
+	catalog := s.fromJSON(arrow.BinaryTypes.String, `["main"]`)
+	expected := array.NewRecord(schema_ref.Catalogs, []arrow.Array{catalog}, 1)
+	defer catalog.Release()
+	defer expected.Release()
+
+	s.True(rdr.Next())
+	rec := rdr.Record()
+	s.NotNil(rec)
+	rec.Retain()
+	defer rec.Release()
+	s.Truef(array.RecordEqual(expected, rec), "expected: %s\ngot: %s", expected, rec)
+
 	s.False(rdr.Next())
 }
 
@@ -379,6 +416,21 @@ func (s *FlightSqliteServerSuite) TestCommandGetDbSchemas() {
 	defer rdr.Release()
 
 	s.True(rdr.Schema().Equal(schema_ref.DBSchemas), rdr.Schema().String())
+
+	catalog := s.fromJSON(arrow.BinaryTypes.String, `["main"]`)
+	schema := s.fromJSON(arrow.BinaryTypes.String, `[""]`)
+	expected := array.NewRecord(schema_ref.DBSchemas, []arrow.Array{catalog, schema}, 1)
+	defer catalog.Release()
+	defer schema.Release()
+	defer expected.Release()
+
+	s.True(rdr.Next())
+	rec := rdr.Record()
+	s.NotNil(rec)
+	rec.Retain()
+	defer rec.Release()
+	s.Truef(array.RecordEqual(expected, rec), "expected: %s\ngot: %s", expected, rec)
+
 	s.False(rdr.Next())
 }
 
@@ -403,7 +455,7 @@ func (s *FlightSqliteServerSuite) TestCommandGetTableTypes() {
 
 func (s *FlightSqliteServerSuite) TestCommandStatementUpdate() {
 	ctx := context.Background()
-	result, err := s.cl.ExecuteUpdate(ctx, `INSERT INTO intTable (keyName, value) VALUES 
+	result, err := s.cl.ExecuteUpdate(ctx, `INSERT INTO intTable (keyName, value) VALUES
 							('KEYNAME1', 1001), ('KEYNAME2', 1002), ('KEYNAME3', 1003)`)
 	s.NoError(err)
 	s.EqualValues(3, result)
@@ -420,7 +472,7 @@ func (s *FlightSqliteServerSuite) TestCommandStatementUpdate() {
 
 func (s *FlightSqliteServerSuite) TestCommandPreparedStatementQuery() {
 	ctx := context.Background()
-	prep, err := s.cl.Prepare(ctx, s.mem, "SELECT * FROM intTable")
+	prep, err := s.cl.Prepare(ctx, "SELECT * FROM intTable")
 	s.NoError(err)
 	defer prep.Close(ctx)
 
@@ -455,7 +507,7 @@ func (s *FlightSqliteServerSuite) TestCommandPreparedStatementQuery() {
 
 func (s *FlightSqliteServerSuite) TestCommandPreparedStatementQueryWithParams() {
 	ctx := context.Background()
-	stmt, err := s.cl.Prepare(ctx, s.mem, "SELECT * FROM intTable WHERE keyName LIKE ?")
+	stmt, err := s.cl.Prepare(ctx, "SELECT * FROM intTable WHERE keyName LIKE ?")
 	s.NoError(err)
 	defer stmt.Close(ctx)
 
@@ -514,7 +566,7 @@ func (s *FlightSqliteServerSuite) TestCommandPreparedStatementQueryWithParams() 
 
 func (s *FlightSqliteServerSuite) TestCommandPreparedStatementUpdateWithParams() {
 	ctx := context.Background()
-	stmt, err := s.cl.Prepare(ctx, s.mem, "INSERT INTO intTable (keyName, value) VALUES ('new_value', ?)")
+	stmt, err := s.cl.Prepare(ctx, "INSERT INTO intTable (keyName, value) VALUES ('new_value', ?)")
 	s.NoError(err)
 	defer stmt.Close(ctx)
 
@@ -556,7 +608,7 @@ func (s *FlightSqliteServerSuite) TestCommandPreparedStatementUpdateWithParams()
 
 func (s *FlightSqliteServerSuite) TestCommandPreparedStatementUpdate() {
 	ctx := context.Background()
-	stmt, err := s.cl.Prepare(ctx, s.mem, "INSERT INTO intTable (keyName, value) VALUES ('new_value', 999)")
+	stmt, err := s.cl.Prepare(ctx, "INSERT INTO intTable (keyName, value) VALUES ('new_value', 999)")
 	s.NoError(err)
 	defer stmt.Close(ctx)
 

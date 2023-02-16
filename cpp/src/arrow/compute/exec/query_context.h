@@ -14,33 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#pragma once
+
+#include <string_view>
 
 #include "arrow/compute/exec.h"
+#include "arrow/compute/exec/exec_plan.h"
 #include "arrow/compute/exec/task_util.h"
 #include "arrow/compute/exec/util.h"
 #include "arrow/io/interfaces.h"
 #include "arrow/util/async_util.h"
-
-#pragma once
+#include "arrow/util/type_fwd.h"
 
 namespace arrow {
 
 using io::IOContext;
 namespace compute {
-struct ARROW_EXPORT QueryOptions {
-  QueryOptions();
-
-  /// \brief Should the plan use a legacy batching strategy
-  ///
-  /// This is currently in place only to support the Scanner::ToTable
-  /// method.  This method relies on batch indices from the scanner
-  /// remaining consistent.  This is impractical in the ExecPlan which
-  /// might slice batches as needed (e.g. for a join)
-  ///
-  /// However, it still works for simple plans and this is the only way
-  /// we have at the moment for maintaining implicit order.
-  bool use_legacy_batching;
-};
 
 class ARROW_EXPORT QueryContext {
  public:
@@ -70,26 +59,31 @@ class ARROW_EXPORT QueryContext {
   /// a valid future is returned then it should be marked complete when the
   /// external task has finished.
   ///
+  /// \param name A name to give the task for traceability and debugging
+  ///
   /// \return an invalid future if the plan has already ended, otherwise this
   ///         returns a future that must be completed when the external task
   ///         finishes.
-  Result<Future<>> BeginExternalTask();
+  Result<Future<>> BeginExternalTask(std::string_view name);
 
   /// \brief Add a single function as a task to the query's task group
   ///        on the compute threadpool.
   ///
   /// \param fn The task to run. Takes no arguments and returns a Status.
-  Status ScheduleTask(std::function<Status()> fn);
+  /// \param name A name to give the task for traceability and debugging
+  void ScheduleTask(std::function<Status()> fn, std::string_view name);
   /// \brief Add a single function as a task to the query's task group
   ///        on the compute threadpool.
   ///
   /// \param fn The task to run. Takes the thread index and returns a Status.
-  Status ScheduleTask(std::function<Status(size_t)> fn);
+  /// \param name A name to give the task for traceability and debugging
+  void ScheduleTask(std::function<Status(size_t)> fn, std::string_view name);
   /// \brief Add a single function as a task to the query's task group on
   ///        the IO thread pool
   ///
   /// \param fn The task to run. Returns a status.
-  Status ScheduleIOTask(std::function<Status()> fn);
+  /// \param name A name to give the task for traceability and debugging
+  void ScheduleIOTask(std::function<Status()> fn, std::string_view name);
 
   // Register/Start TaskGroup is a way of performing a "Parallel For" pattern:
   // - The task function takes the thread index and the index of the task

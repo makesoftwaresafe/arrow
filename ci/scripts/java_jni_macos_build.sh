@@ -108,7 +108,7 @@ fi
 
 popd
 
-
+export JAVA_JNI_CMAKE_ARGS="-DProtobuf_ROOT=${build_dir}/cpp/protobuf_ep-install"
 ${arrow_dir}/ci/scripts/java_jni_build.sh \
   ${arrow_dir} \
   ${install_dir} \
@@ -125,6 +125,7 @@ echo "=== Checking shared dependencies for libraries ==="
 pushd ${dist_dir}
 archery linking check-dependencies \
   --allow CoreFoundation \
+  --allow Security \
   --allow libSystem \
   --allow libarrow_cdata_jni \
   --allow libarrow_dataset_jni \
@@ -133,6 +134,7 @@ archery linking check-dependencies \
   --allow libcurl \
   --allow libgandiva_jni \
   --allow libncurses \
+  --allow libobjc \
   --allow libplasma_java \
   --allow libz \
   libarrow_cdata_jni.dylib \

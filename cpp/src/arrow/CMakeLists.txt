@@ -206,6 +206,7 @@ set(ARROW_SRCS
     util/compression.cc
     util/counting_semaphore.cc
     util/cpu_info.cc
+    util/crc32.cc
     util/debug.cc
     util/decimal.cc
     util/delimiting.cc
@@ -242,6 +243,8 @@ set(ARROW_SRCS
 
 if(ARROW_JEMALLOC)
   list(APPEND ARROW_SRCS memory_pool_jemalloc.cc)
+  set_source_files_properties(memory_pool_jemalloc.cc
+                              PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 endif()
 
 append_avx2_src(util/bpacking_avx2.cc)
@@ -392,6 +395,7 @@ if(ARROW_COMPUTE)
        compute/exec/bloom_filter.cc
        compute/exec/exec_plan.cc
        compute/exec/expression.cc
+       compute/exec/fetch_node.cc
        compute/exec/filter_node.cc
        compute/exec/hash_join.cc
        compute/exec/hash_join_dict.cc
@@ -595,6 +599,9 @@ if(NOT ARROW_BUILD_SHARED AND ARROW_BUILD_STATIC)
   set(ARROW_PC_LIBS_PRIVATE "")
   set(ARROW_PC_REQUIRES "${ARROW_PC_REQUIRES_PRIVATE}")
   set(ARROW_PC_REQUIRES_PRIVATE "")
+
+  string(APPEND ARROW_TESTING_PC_CFLAGS "${ARROW_TESTING_PC_CFLAGS_PRIVATE}")
+  set(ARROW_TESTING_PC_CFLAGS_PRIVATE "")
 else()
   set(ARROW_PC_CFLAGS "")
   set(ARROW_PC_LIBS "")
